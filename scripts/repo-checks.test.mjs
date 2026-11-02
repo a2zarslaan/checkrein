@@ -15,6 +15,10 @@ import {
   walkFiles,
   scanSkillCrossRefs,
   runChecks,
+  checkHooks,
+  checkGuards,
+  guardTestFor,
+  checkVersions,
 } from './repo-checks.mjs';
 
 const EM_DASH = String.fromCharCode(0x2014);
@@ -203,4 +207,125 @@ test('skill-refs: a dead backticked path in a SKILL.md is reported; a live one i
   const { findings } = runChecks(root);
   const refs = findings.filter((f) => f.startsWith('skill-refs:'));
   assert.deepEqual(refs, ['skill-refs: skills/notes-search/SKILL.md:9: `docs/missing-guide.md` does not exist']);
+});
+
+// ---------- hooks, guards, versions ----------
+
+const HOOK_ARG = '${CLAUDE_PLUGIN_ROOT}/guards/run.mjs';
+
+function writeJson(root, rel, value) {
+  mkdirSync(join(root, rel, '..'), { recursive: true });
+  writeFileSync(join(root, rel), typeof value === 'string' ? value : JSON.stringify(value));
+}
+
+function hooksConfig(arg = HOOK_ARG, timeout = 10) {
+  return { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'node', args: [arg], timeout }] }] } };
+}
+
+test('hooks: a valid file whose args resolve passes', () => {
+  const root = tempDir();
+  writeJson(root, 'guards/run.mjs', '');
+  writeJson(root, 'hooks/hooks.json', hooksConfig());
+  assert.deepEqual(checkHooks(root), []);
+});
+
+test('hooks: missing file, bad JSON and a missing wrapper are reported', () => {
+  const root = tempDir();
+  assert.deepEqual(checkHooks(root), ['hooks/hooks.json is missing']);
+  writeJson(root, 'hooks/hooks.json', '{ nope');
+  assert.ok(checkHooks(root)[0].includes('does not parse'));
+  writeJson(root, 'hooks/hooks.json', { Stop: [] });
+  assert.deepEqual(checkHooks(root), ['hooks/hooks.json has no "hooks" wrapper object']);
+});
+
+test('hooks: a dead args path and a non-numeric timeout are reported', () => {
+  const root = tempDir();
+  writeJson(root, 'hooks/hooks.json', hooksConfig(HOOK_ARG, '10'));
+  const problems = checkHooks(root);
+  assert.equal(problems.length, 2);
+  assert.ok(problems.some((p) => p.includes('timeout must be a number')));
+  assert.ok(problems.some((p) => p.includes('`guards/run.mjs`, which does not exist')));
+});
+
+function caseList(count, overrides = {}) {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `case-${i}`,
+    tool: 'Bash',
+    input: { command: 'ls' },
+    manifest: 'default',
+    expect: 'allow',
+    rule: 'none',
+    why: 'plain listing',
+    ...overrides,
+  }));
+}
+
+test('guards: 100 complete cases and tested modules pass', () => {
+  const root = tempDir();
+  writeJson(root, 'guards/cases.json', caseList(100));
+  writeJson(root, 'guards/evaluator.mjs', '');
+  writeJson(root, 'guards/evaluator.test.mjs', '');
+  writeJson(root, 'guards/manifest.mjs', '');
+  writeJson(root, 'guards/manifest.test.mjs', '');
+  writeJson(root, 'guards/rules/production.mjs', '');
+  assert.deepEqual(checkGuards(root), []);
+});
+
+test('guards: pretooluse.mjs is tested by cases.test.mjs, and manifest.mjs needs its own test', () => {
+  assert.equal(guardTestFor('pretooluse.mjs'), 'cases.test.mjs');
+  assert.equal(guardTestFor('evaluator.mjs'), 'evaluator.test.mjs');
+  const root = tempDir();
+  writeJson(root, 'guards/cases.json', caseList(100));
+  writeJson(root, 'guards/pretooluse.mjs', '');
+  writeJson(root, 'guards/cases.test.mjs', '');
+  writeJson(root, 'guards/manifest.mjs', '');
+  assert.deepEqual(checkGuards(root), ['guards/manifest.mjs has no matching guards/manifest.test.mjs']);
+  writeJson(root, 'guards/manifest.test.mjs', '');
+  assert.deepEqual(checkGuards(root), []);
+});
+
+test('guards: pretooluse.mjs without cases.test.mjs is reported', () => {
+  const root = tempDir();
+  writeJson(root, 'guards/cases.json', caseList(100));
+  writeJson(root, 'guards/pretooluse.mjs', '');
+  writeJson(root, 'guards/pretooluse.test.mjs', '');
+  assert.deepEqual(checkGuards(root), ['guards/pretooluse.mjs has no matching guards/cases.test.mjs']);
+});
+
+test('guards: too few cases, a case missing fields, and a module without a test are reported', () => {
+  const root = tempDir();
+  const cases = caseList(5);
+  delete cases[2].why;
+  writeJson(root, 'guards/cases.json', cases);
+  writeJson(root, 'guards/stop.mjs', '');
+  const problems = checkGuards(root);
+  assert.ok(problems.some((p) => p.includes('holds 5 cases')));
+  assert.ok(problems.some((p) => p.includes('case 2 (case-2) lacks why')));
+  assert.ok(problems.some((p) => p.includes('guards/stop.mjs has no matching guards/stop.test.mjs')));
+});
+
+test('guards: a missing or unparsable case file is reported', () => {
+  const root = tempDir();
+  assert.deepEqual(checkGuards(root), ['guards/cases.json is missing']);
+  writeJson(root, 'guards/cases.json', '[');
+  assert.ok(checkGuards(root)[0].includes('does not parse'));
+});
+
+test('versions: matching versions with a changelog section pass', () => {
+  const root = tempDir();
+  writeJson(root, '.claude-plugin/plugin.json', { version: '1.2.3' });
+  writeJson(root, 'package.json', { version: '1.2.3' });
+  writeJson(root, 'CHANGELOG.md', '# Changelog\n\n## 1.2.3\n\n- first\n');
+  assert.deepEqual(checkVersions(root), []);
+});
+
+test('versions: a mismatch and a missing changelog section are reported', () => {
+  const root = tempDir();
+  writeJson(root, '.claude-plugin/plugin.json', { version: '1.2.3' });
+  writeJson(root, 'package.json', { version: '1.2.4' });
+  assert.equal(checkVersions(root).length, 2);
+  writeJson(root, 'CHANGELOG.md', '# Changelog\n\n## 1.2.40\n');
+  const problems = checkVersions(root);
+  assert.ok(problems.some((p) => p.includes('differs from package.json')));
+  assert.ok(problems.some((p) => p.includes('no "## 1.2.4" section')));
 });

@@ -13,6 +13,8 @@ const SCRIPT = join(HERE, 'checkrein-check.mjs');
 const PASS = join(HERE, 'fixtures', 'adopter-pass');
 const FAIL = join(HERE, 'fixtures', 'adopter-fail');
 const TEMPLATES = join(HERE, '..', 'templates');
+const MANIFEST_V1 = join(HERE, 'fixtures', 'manifest-v1.json');
+const V2_KEYS = ['production_markers', 'example_globs', 'approval', 'consulted'];
 
 function run(args, cwd = HERE) {
   const result = spawnSync(process.execPath, args, { cwd, encoding: 'utf8' });
@@ -251,6 +253,150 @@ test('a changelog section not headed "## PR #<number>: <title>" is a warning, no
     'changelog: WARN project-documentation/CHANGELOG.md:3: section "## Release 2" is not headed "## PR #<number>: <title>"',
     'checkrein-check: OK (7 checks, 1 warning)',
   ]);
+});
+
+function editManifest(dir, change) {
+  const manifestPath = join(dir, 'checkrein.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  change(manifest);
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+}
+
+test('the passing fixture is a version 2 manifest carrying every version 2 key', () => {
+  const manifest = JSON.parse(readFileSync(join(PASS, 'checkrein.json'), 'utf8'));
+  assert.equal(manifest.checkrein.manifest_version, 2);
+  for (const key of V2_KEYS) assert.ok(key in manifest, `fixture lacks ${key}`);
+});
+
+test('a version 1 manifest still passes', () => {
+  const dir = tempCopy(PASS);
+  copyFileSync(MANIFEST_V1, join(dir, 'checkrein.json'));
+  const { code, lines } = run([SCRIPT, '--root', dir]);
+  assert.equal(code, 0, lines.join('\n'));
+  assert.deepEqual(lines, ['checkrein-check: OK (7 checks)']);
+});
+
+test('a version 1 manifest carrying a version 2 key reports it as unknown and names the upgrade', () => {
+  const dir = tempCopy(PASS);
+  copyFileSync(MANIFEST_V1, join(dir, 'checkrein.json'));
+  editManifest(dir, (m) => {
+    m.consulted = { mode: 'warn' };
+  });
+  const { code, lines } = run([SCRIPT, '--root', dir]);
+  assert.equal(code, 1, lines.join('\n'));
+  assert.ok(
+    lines.includes('manifest: unknown top-level key "consulted" (a manifest version 2 key; the upgrade skill moves the manifest to version 2)'),
+    lines.join('\n'),
+  );
+  assert.equal(lines.at(-1), 'checkrein-check: FAILED (1 finding in 7 checks)');
+});
+
+test('a version 2 manifest without any version 2 key passes, because every one is optional', () => {
+  const dir = tempCopy(PASS);
+  editManifest(dir, (m) => {
+    for (const key of V2_KEYS) delete m[key];
+  });
+  const { code, lines } = run([SCRIPT, '--root', dir]);
+  assert.equal(code, 0, lines.join('\n'));
+  assert.deepEqual(lines, ['checkrein-check: OK (7 checks)']);
+});
+
+test('a version 2 manifest may leave out keys inside a version 2 object', () => {
+  const dir = tempCopy(PASS);
+  editManifest(dir, (m) => {
+    m.production_markers = { hosts: ['notes.example.internal'] };
+    m.approval = {};
+    m.consulted = { mode: 'warn' };
+  });
+  const { code, lines } = run([SCRIPT, '--root', dir]);
+  assert.equal(code, 0, lines.join('\n'));
+});
+
+test('an unsupported manifest version fails', () => {
+  const dir = tempCopy(PASS);
+  editManifest(dir, (m) => {
+    m.checkrein.manifest_version = 3;
+  });
+  const { code, lines } = run([SCRIPT, '--root', dir]);
+  assert.equal(code, 1, lines.join('\n'));
+  assert.deepEqual(lines, ['manifest: checkrein.manifest_version must be 1 or 2 (found 3)', 'checkrein-check: FAILED (1 finding in 7 checks)']);
+});
+
+test('version 2 keys with the wrong type or shape fail, one finding each', () => {
+  const dir = tempCopy(PASS);
+  editManifest(dir, (m) => {
+    m.production_markers = {
+      hosts: ['notes example internal'],
+      logins: ['@notes.example.internal'],
+      ports: [55000, 70000],
+      database_url_patterns: ['([unclosed'],
+      tunnels: [],
+    };
+    m.example_globs = '.env.example';
+    m.approval = { ask: ['push', 'deploy'], dependency_commands: [''] };
+    m.consulted = { mode: 'strict', code_globs: [], required_reads: [7] };
+  });
+  const { code, lines } = run([SCRIPT, '--root', dir]);
+  assert.equal(code, 1, lines.join('\n'));
+  const expected = [
+    'manifest: unknown key "production_markers.tunnels"',
+    'manifest: "production_markers.hosts[0]" must be a hostname or address with no spaces (found "notes example internal")',
+    'manifest: "production_markers.logins[0]" must be a login written as "user@" or "user@host" (found "@notes.example.internal")',
+    'manifest: "production_markers.ports[1]" must be a port number from 1 to 65535 (found 70000)',
+    'manifest: "production_markers.database_url_patterns[0]" is not a valid regular expression:',
+    'manifest: "example_globs" must be an array of glob strings',
+    'manifest: "approval.ask[1]" must be one of push, pr_create, pr_merge, dependency_change (found "deploy")',
+    'manifest: "approval.dependency_commands[0]" must be a non-empty command prefix (found "")',
+    'manifest: "consulted.mode" must be "block" or "warn" (found "strict")',
+    'manifest: "consulted.required_reads" must be an array of non-empty repository-relative file paths',
+  ];
+  for (const prefix of expected) {
+    assert.ok(lines.some((l) => l.startsWith(prefix)), `missing finding: ${prefix}\n---\n${lines.join('\n')}`);
+  }
+  assert.equal(lines.at(-1), `checkrein-check: FAILED (${expected.length} findings in 7 checks)`);
+});
+
+test('a version 2 object written as another type fails', () => {
+  const dir = tempCopy(PASS);
+  editManifest(dir, (m) => {
+    m.approval = ['push'];
+  });
+  const { code, lines } = run([SCRIPT, '--root', dir]);
+  assert.equal(code, 1, lines.join('\n'));
+  assert.ok(lines.includes('manifest: "approval" must be an object'), lines.join('\n'));
+});
+
+test('a consulted.required_reads file missing on disk is a warning, not a failure', () => {
+  const dir = tempCopy(PASS);
+  editManifest(dir, (m) => {
+    m.consulted.required_reads = ['project-documentation/style-guide.md'];
+  });
+  const { code, lines } = run([SCRIPT, '--root', dir]);
+  assert.equal(code, 0, lines.join('\n'));
+  assert.deepEqual(lines, [
+    'manifest: WARN consulted.required_reads entry "project-documentation/style-guide.md" is not a file in the repository',
+    'checkrein-check: OK (7 checks, 1 warning)',
+  ]);
+});
+
+test('ports written as digit strings are accepted', () => {
+  const dir = tempCopy(PASS);
+  editManifest(dir, (m) => {
+    m.production_markers.ports = ['55000', 2222];
+  });
+  const { code, lines } = run([SCRIPT, '--root', dir]);
+  assert.equal(code, 0, lines.join('\n'));
+});
+
+test('the templates manifest is version 2 and lists the version 2 keys after the version 1 keys in order', () => {
+  const manifest = JSON.parse(readFileSync(join(TEMPLATES, 'checkrein.json'), 'utf8'));
+  assert.equal(manifest.checkrein.manifest_version, 2);
+  const keys = Object.keys(manifest);
+  assert.deepEqual(keys.slice(-V2_KEYS.length), V2_KEYS);
+  assert.deepEqual(manifest.production_markers, { hosts: [], logins: [], ports: [], database_url_patterns: [] });
+  assert.deepEqual(manifest.example_globs, ['.env.example', '*.example', '*.sample']);
+  assert.deepEqual(manifest.approval, { ask: ['push', 'pr_create', 'pr_merge', 'dependency_change'], dependency_commands: [] });
+  assert.deepEqual(manifest.consulted, { mode: 'block', code_globs: ['src/**', '**/src/**'], required_reads: [] });
 });
 
 test('the templates tree passes the adopter check with its own manifest', () => {

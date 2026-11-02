@@ -4,7 +4,7 @@
 //   node scripts/repo-checks.mjs [--quiet]
 //
 // Runs from any directory; the repository root is the parent of this file's folder.
-// Checks: em-dash, leaks, skills, skill-refs, plugin, manifest-template, readme, templates.
+// Checks: em-dash, leaks, skills, skill-refs, plugin, manifest-template, readme, hooks, guards, versions, templates.
 // Every finding is one line on stdout, prefixed with the check name. Exit 1 on any finding.
 // Zero dependencies, Node 20 or newer. The helpers are exported for repo-checks.test.mjs.
 
@@ -40,6 +40,13 @@ const MANIFEST_CONTRACT = {
   domains: null,
   areas: null,
   review: { confidence_floor: null },
+};
+
+const MANIFEST_V2_ADDITIONS = {
+  production_markers: { hosts: null, logins: null, ports: null, database_url_patterns: null },
+  example_globs: null,
+  approval: { ask: null, dependency_commands: null },
+  consulted: { mode: null, code_globs: null, required_reads: null },
 };
 
 // ---------- small helpers (duplicated in checkrein-check.mjs on purpose: that file stays standalone) ----------
@@ -387,6 +394,115 @@ function compareKeys(actual, contract, path, report) {
   }
 }
 
+const CASE_FIELDS = ['id', 'tool', 'input', 'manifest', 'expect', 'rule', 'why'];
+const MIN_CASES = 100;
+
+function parseJsonFile(path) {
+  const text = readText(path);
+  if (text === null) return { missing: true };
+  try {
+    return { value: JSON.parse(text) };
+  } catch (error) {
+    return { error: error.message };
+  }
+}
+
+// Problems with hooks/hooks.json: it parses, has the hooks wrapper, every args path under
+// ${CLAUDE_PLUGIN_ROOT}/ names an existing file, and every timeout is a number.
+export function checkHooks(root) {
+  const problems = [];
+  const parsed = parseJsonFile(join(root, 'hooks', 'hooks.json'));
+  if (parsed.missing) return ['hooks/hooks.json is missing'];
+  if (parsed.error) return [`hooks/hooks.json does not parse: ${parsed.error}`];
+  const config = parsed.value;
+  if (!isPlainObject(config) || !isPlainObject(config.hooks)) return ['hooks/hooks.json has no "hooks" wrapper object'];
+  const prefix = '${CLAUDE_PLUGIN_ROOT}/';
+  for (const [event, groups] of Object.entries(config.hooks)) {
+    if (!Array.isArray(groups)) {
+      problems.push(`hooks/hooks.json: "${event}" must be an array`);
+      continue;
+    }
+    groups.forEach((group, g) => {
+      const entries = isPlainObject(group) && Array.isArray(group.hooks) ? group.hooks : null;
+      if (!entries) {
+        problems.push(`hooks/hooks.json: ${event}[${g}] has no "hooks" array`);
+        return;
+      }
+      entries.forEach((entry, h) => {
+        const where = `${event}[${g}].hooks[${h}]`;
+        if (!isPlainObject(entry)) {
+          problems.push(`hooks/hooks.json: ${where} must be an object`);
+          return;
+        }
+        if (typeof entry.timeout !== 'number' || !Number.isFinite(entry.timeout)) problems.push(`hooks/hooks.json: ${where}.timeout must be a number`);
+        for (const arg of Array.isArray(entry.args) ? entry.args : []) {
+          if (typeof arg !== 'string' || !arg.startsWith(prefix)) continue;
+          const target = arg.slice(prefix.length);
+          if (!existsSync(join(root, target))) problems.push(`hooks/hooks.json: ${where} names \`${target}\`, which does not exist`);
+        }
+      });
+    });
+  }
+  return problems;
+}
+
+// A top-level guards module is tested by guards/<name>.test.mjs, except where this table names
+// its battery: pretooluse.mjs runs through the case file.
+const GUARD_TEST_FILES = { 'pretooluse.mjs': 'cases.test.mjs' };
+
+export function guardTestFor(name) {
+  return GUARD_TEST_FILES[name] ?? name.replace(/\.mjs$/, '.test.mjs');
+}
+
+// Problems with the guards module: the case file and the one-test-per-module rule.
+export function checkGuards(root) {
+  const problems = [];
+  const guardsDir = join(root, 'guards');
+  const parsed = parseJsonFile(join(guardsDir, 'cases.json'));
+  if (parsed.missing) problems.push('guards/cases.json is missing');
+  else if (parsed.error) problems.push(`guards/cases.json does not parse: ${parsed.error}`);
+  else if (!Array.isArray(parsed.value)) problems.push('guards/cases.json must be an array of cases');
+  else {
+    if (parsed.value.length < MIN_CASES) problems.push(`guards/cases.json holds ${parsed.value.length} cases; at least ${MIN_CASES} are required`);
+    parsed.value.forEach((item, i) => {
+      if (!isPlainObject(item)) {
+        problems.push(`guards/cases.json: case ${i} must be an object`);
+        return;
+      }
+      const missing = CASE_FIELDS.filter((key) => !(key in item) || item[key] === '' || item[key] === null);
+      if (missing.length) problems.push(`guards/cases.json: case ${i}${typeof item.id === 'string' ? ` (${item.id})` : ''} lacks ${missing.join(', ')}`);
+    });
+  }
+  if (isDir(guardsDir)) {
+    const names = readdirSync(guardsDir, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name);
+    for (const name of names) {
+      if (!name.endsWith('.mjs') || name.endsWith('.test.mjs')) continue;
+      const test = guardTestFor(name);
+      if (!names.includes(test)) problems.push(`guards/${name} has no matching guards/${test}`);
+    }
+  }
+  return problems;
+}
+
+// Problems with release versions: plugin.json equals package.json, and CHANGELOG.md has the section.
+export function checkVersions(root) {
+  const problems = [];
+  const plugin = parseJsonFile(join(root, '.claude-plugin', 'plugin.json'));
+  const pkg = parseJsonFile(join(root, 'package.json'));
+  if (!plugin.value || !pkg.value) return ['.claude-plugin/plugin.json and package.json must both parse to compare versions'];
+  const pluginVersion = plugin.value.version;
+  const pkgVersion = pkg.value.version;
+  if (typeof pluginVersion !== 'string' || typeof pkgVersion !== 'string') problems.push('plugin.json and package.json must both carry a version string');
+  else if (pluginVersion !== pkgVersion) problems.push(`.claude-plugin/plugin.json version ${pluginVersion} differs from package.json version ${pkgVersion}`);
+  const changelog = readText(join(root, 'CHANGELOG.md'));
+  if (changelog === null) problems.push('CHANGELOG.md is missing');
+  else if (typeof pkgVersion === 'string') {
+    const escaped = pkgVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!new RegExp(`^## ${escaped}\\s*$`, 'm').test(changelog)) problems.push(`CHANGELOG.md has no "## ${pkgVersion}" section`);
+  }
+  return problems;
+}
+
 export function runChecks(root = ROOT) {
   const findings = [];
   const notices = [];
@@ -474,8 +590,10 @@ export function runChecks(root = ROOT) {
   else {
     try {
       const template = JSON.parse(templateText);
-      compareKeys(template, MANIFEST_CONTRACT, '', (message) => fail('manifest-template', `templates/checkrein.json: ${message}`));
-      if (template?.checkrein?.manifest_version !== 1) fail('manifest-template', 'templates/checkrein.json: checkrein.manifest_version must be 1');
+      const version = template?.checkrein?.manifest_version;
+      const contract = version === 2 ? { ...MANIFEST_CONTRACT, ...MANIFEST_V2_ADDITIONS } : MANIFEST_CONTRACT;
+      compareKeys(template, contract, '', (message) => fail('manifest-template', `templates/checkrein.json: ${message}`));
+      if (version !== 1 && version !== 2) fail('manifest-template', 'templates/checkrein.json: checkrein.manifest_version must be 1 or 2');
     } catch (error) {
       fail('manifest-template', `templates/checkrein.json does not parse: ${error.message}`);
     }
@@ -496,6 +614,11 @@ export function runChecks(root = ROOT) {
       }
     }
   }
+
+  // hooks, guards, versions
+  for (const message of checkHooks(root)) fail('hooks', message);
+  for (const message of checkGuards(root)) fail('guards', message);
+  for (const message of checkVersions(root)) fail('versions', message);
 
   // templates
   const script = join(root, 'scripts', 'checkrein-check.mjs');

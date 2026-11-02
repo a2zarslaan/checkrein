@@ -68,7 +68,9 @@ There is no exception. If it does not fit on one line, use the editor workflow.
 
 The agent never opens a connection to production: no remote shell, no file copy to or from a production host, no tunnel, no production database connection string. **A read-only query is not an exception.** Diagnose against a local copy instead: the operator fetches a backup, the agent restores it locally and queries that. When a production-side action is genuinely required, hand the operator the exact one-line command (rules above) and stop.
 
-If the harness or a hook denies a command, the denial is final. Never reword a command to get around it. A later checkrein release may add harness hooks that enforce this rule; the rule stands on its own without them.
+If the harness or a hook denies a command, the denial is final. Never reword a command to get around it.
+
+In Claude Code, when the manifest is version 2, the checkrein plugin's hooks enforce this rule: a shell command that runs an SSH-family client, uses a remote shell address, or names a host, login, port or database URL pattern from the manifest's `production_markers` is denied. Everywhere else, and for anything the hooks cannot see (a command assembled from variables, a script that connects by itself), the rule stands on its own.
 
 ### Protected Trees (Mandatory)
 
@@ -76,12 +78,24 @@ The manifest's `protected_trees` list names folders that are never read as guida
 
 - Do not read a protected tree, search inside it, or cite it as the authority for a current rule.
 - The one exception is a deliberate read the operator asked for by path. Never start such a read on your own initiative. When a task seems to need a file in a protected tree, ask the operator for the path.
+- A deliberate read runs as a shell command that starts with `CHECKREIN_ALLOW_PROTECTED=1`. Set the prefix only when the operator has named the path in this conversation; it lifts the protected-tree rule for that one command and no other rule.
 - A pointer into a protected tree that sends an agent there for current guidance is removed, not repointed. A pointer that only records provenance (where a historical baseline now lives) may keep its path.
-- Search from the repository root with a tool that honours the project's ignore file, and keep protected trees listed in it, so a broad search does not pull them into context.
+- Search from the repository root with `rg` or another tool that honours the `.ignore` file at the repository root. That file lists every protected tree and `reference-documentation/`, so a broad search skips them; a search that names a path inside one still searches it. When a tree is added to `protected_trees`, add it to `.ignore` in the same change.
+- Metadata and retirement commands stay allowed on a protected tree: listing, testing, counting, making a folder, and the version-control add, move into the tree, commit and status that retire a working doc.
 
-The manifest's `secret_globs` list names files the agent never reads or edits, whatever the task.
+In Claude Code, when the manifest is version 2, the checkrein plugin's hooks enforce this rule: a file tool aimed inside a protected tree, a shell reader that names one or reads from one through a pipe, a move out of one, and a recursive grep from the repository root are denied. Everywhere else, and for anything the hooks cannot see (a symlink, a path assembled from variables, a program that opens the files itself), the rule stands on its own. The git hooks and CI also fail a commit that modifies or deletes a file inside a protected tree; adding a file into one is retirement and passes.
+
+The manifest's `secret_globs` list names files the agent never reads or edits, whatever the task. A file that also matches `example_globs` (an example environment file, a sample configuration) holds no real values and may be read. When a task needs a secret value, ask the operator for it. In Claude Code, when the manifest is version 2, the plugin's hooks deny reading or writing a secret file through the file tools, shell readers and editors, redirections and sourcing; the git hooks and CI fail a commit that adds or modifies one. A program that loads the file itself (a test runner, a framework) is not seen, so the rule stands on its own there and in every other harness.
 
 `reference-documentation/` is read-only. Never edit, install or run anything inside it. The only writes allowed there are edits to an _INDEX.md file.
+
+### Approvals and Consulted Evidence (Mandatory)
+
+The operator approves every push, every pull request creation, every merge and every dependency change before it runs. Ask first; never route one of these through a script, an alias or another tool to avoid the question. A lockfile-faithful install (one that installs exactly what the lockfile records) is not a dependency change.
+
+In Claude Code, when the manifest is version 2, the checkrein plugin's hooks ask the operator before each action class listed in the manifest's `approval.ask`, and a consulted-evidence check runs at the end of every turn: a turn that edited code (a file matching `consulted.code_globs`) without the session showing a read of `project-documentation/corrections-log.md`, and of every `consulted.required_reads` file, is blocked once with the missing files named. Read them, re-check the work against them, then finish. The check sees edits made through the file tools only, so the Standard Corrections Log Check below stays the rule for every edit, however it is made.
+
+When a hook reports an error, the manifest does not parse or a guard failed. Before a tool call it asks with a reason that starts with "checkrein guard error"; at the end of a turn it blocks with a reason that starts with "checkrein: the consulted-evidence guard could not run". Stop and show the operator the error; do not work around it.
 
 ### Version Parity Across Environments (Mandatory)
 
@@ -180,9 +194,9 @@ A working doc is never a source of truth. The durable records are the living doc
 
 ## Mandatory Skill Protocol
 
-The skills are installed as a plugin or copied into the harness's skills folder: `docs`, `dev-code`, `dev-review`, `github-story-writer`, `package-upgrade`, `post-merge`, `preflight-check`, `structured-debugging` and `init`. Every skill that needs a project value begins with **Step 0: resolve the manifest**: read `checkrein.json`, substitute its values, and stop with a message telling the operator to run `init` if the manifest is missing.
+The skills are installed as a plugin or copied into the harness's skills folder: `docs`, `dev-code`, `dev-review`, `github-story-writer`, `package-upgrade`, `post-merge`, `preflight-check`, `structured-debugging`, `init` and `upgrade`. Every skill that needs a project value begins with **Step 0: resolve the manifest**: read `checkrein.json`, substitute its values, and stop with a message telling the operator to run `init` if the manifest is missing.
 
-Every skill that reads project files (all but `dev-code` and `init`) then prints a file resolution table of the files they tried to read. **If you do not see the file resolution table in your output, you skipped the check. Run the skill again.**
+Every skill that reads project files (all but `dev-code`, `init` and `upgrade`) then prints a file resolution table of the files they tried to read. **If you do not see the file resolution table in your output, you skipped the check. Run the skill again.**
 
 ### Standard File Resolution
 
@@ -260,7 +274,8 @@ Every skill that reads or writes application code must:
 
 | Skill | What it does | Reads the codebase? | Reads the corrections log? |
 |---|---|---|---|
-| `init` | Copies the templates and the check script into the repository and writes the manifest values it asks for | Only to infer manifest values | No |
+| `init` | Copies the templates, the check script and the enforcement files into the repository and writes the manifest values it asks for | Only to infer manifest values | No |
+| `upgrade` | Moves a version 1 manifest to version 2, copies the enforcement files and writes the `.ignore` file | Only to propose manifest values | No |
 | `docs` | Routes to the right _INDEX.md, runs the tier gate and the Governing-Docs Check, before any code | Targeted: the module under change | Yes, mandatory |
 | `dev-code` | A manual posture lens: think first, keep it simple, keep changes surgical, define success | No | No |
 | `github-story-writer` | Turns a spec or plan into GitHub issues with verification steps and warnings | Yes, to verify names and paths | Yes, embeds warnings |
@@ -274,4 +289,4 @@ Every skill that reads or writes application code must:
 
 ## Claude Code note
 
-This section applies only to Claude Code. The `CLAUDE.md` beside this file imports it through a line holding only the at sign and the file name, so Claude Code loads this hub even where a `CLAUDE.md` exists. A nested `CLAUDE.md` inside `reference-documentation/` or inside a protected tree loads whenever the agent reads a file beneath it, which makes it the right place for a folder-level reminder such as "read the _INDEX.md first" or "archival only". Installed as a plugin, the skills run as `/checkrein:<skill>`.
+This section applies only to Claude Code. The `CLAUDE.md` beside this file imports it through a line holding only the at sign and the file name, so Claude Code loads this hub even where a `CLAUDE.md` exists. A nested `CLAUDE.md` inside `reference-documentation/` or inside a protected tree loads whenever the agent reads a file beneath it, which makes it the right place for a folder-level reminder such as "read the _INDEX.md first" or "archival only". Installed as a plugin, the skills run as `/checkrein:<skill>`, and the plugin's hooks enforce the Production Access, Protected Trees, secrets, approval and consulted-evidence rules above whenever the manifest is version 2. The hooks load at session start; after the plugin is installed or updated, the operator starts a new session.

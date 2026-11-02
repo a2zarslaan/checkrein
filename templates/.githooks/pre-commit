@@ -1,0 +1,18 @@
+#!/bin/sh
+# checkrein pre-commit: refuses a commit that adds or modifies a secret file or changes a file
+# inside a protected tree, and warns on production markers in added lines.
+# Enable once per clone with: git config core.hooksPath .githooks
+
+root=$(git rev-parse --show-toplevel) || exit 1
+check="$root/checkrein-diff-check.mjs"
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "checkrein: node is not installed, so the diff check did not run; install Node 20 or newer (CI still runs it)." >&2
+  exit 0
+fi
+if [ ! -f "$check" ]; then
+  echo "checkrein: checkrein-diff-check.mjs is missing at the repository root; run the checkrein upgrade skill to install it." >&2
+  exit 0
+fi
+
+exec node "$check" --staged --root "$root"

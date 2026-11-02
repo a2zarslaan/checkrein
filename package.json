@@ -1,7 +1,7 @@
 {
   "name": "checkrein",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -9,7 +9,7 @@
   },
   "scripts": {
     "check": "node scripts/repo-checks.mjs",
-    "test": "node --test scripts/*.test.mjs",
+    "test": "node --test scripts/*.test.mjs guards/*.test.mjs",
     "validate": "claude plugin validate . --strict"
   }
 }

@@ -1,0 +1,45 @@
+#!/bin/sh
+# checkrein pre-push: runs the diff check over the commits each pushed ref adds, and refuses the
+# push when any of them adds a secret file or changes a file inside a protected tree.
+# Enable once per clone with: git config core.hooksPath .githooks
+#
+# git passes the remote name as $1 and one line per ref on stdin:
+#   <local_ref> <local_sha> <remote_ref> <remote_sha>
+
+root=$(git rev-parse --show-toplevel) || exit 1
+check="$root/checkrein-diff-check.mjs"
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "checkrein: node is not installed, so the diff check did not run; install Node 20 or newer (CI still runs it)." >&2
+  exit 0
+fi
+if [ ! -f "$check" ]; then
+  echo "checkrein: checkrein-diff-check.mjs is missing at the repository root; run the checkrein upgrade skill to install it." >&2
+  exit 0
+fi
+
+remote="$1"
+empty_tree=$(git hash-object -t tree /dev/null)
+zero=$(printf '%s' "$empty_tree" | tr '0-9a-f' '0')
+status=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "$local_sha" ] || continue
+  # A delete pushes no commits.
+  [ "$local_sha" = "$zero" ] && continue
+
+  if [ "$remote_sha" != "$zero" ] && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+    base="$remote_sha"
+  else
+    # A new branch, or a remote tip this clone has not fetched: start from the parent of the
+    # oldest commit no remote-tracking branch of this remote already holds.
+    first=$(git rev-list --reverse "$local_sha" --not --remotes="$remote" | head -n 1)
+    [ -n "$first" ] || continue
+    base=$(git rev-parse -q --verify "$first^" 2>/dev/null) || base="$empty_tree"
+  fi
+
+  echo "checkrein: checking $local_ref ($base..$local_sha)"
+  node "$check" --root "$root" --range "$base..$local_sha" </dev/null || status=1
+done
+
+exit $status

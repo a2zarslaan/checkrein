@@ -1,7 +1,7 @@
 {
   "name": "checkrein",
-  "version": "0.1.0",
-  "description": "Reins and checks for coding agents. A harness-neutral software engineering workflow: a hub document, living records, nine skills and mechanical checks.",
+  "version": "0.2.0",
+  "description": "Reins and checks for coding agents. A harness-neutral software engineering workflow: a hub document, document templates, ten skills, mechanical checks, and enforcement hooks (production access, protected trees, secret files, approvals, consulted evidence) active only under a version 2 manifest.",
   "author": {
     "name": "a2zarslaan"
   },
