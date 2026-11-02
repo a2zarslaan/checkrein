@@ -1,0 +1,49 @@
+{
+  "skill_name": "github-story-writer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Here is the spec for shared notebooks in our notes app. Break it down into the GitHub issues we need to build it.",
+      "expected_output": "Step 0 resolves the manifest and prints the file resolution table. Then an in-session presentation (chat output, not a file): a summary table followed by stories grouped by track, held for operator confirmation before any issue is created. The batch is an initiative with a tracking issue and numbered stories covering the data model, the membership and invite endpoints, role checks on existing note endpoints, revisions, live updates, the interface changes and the invite email. Every story has the full section structure, labels taken from the repository's existing labels, areas from the manifest, no estimates, verification steps, a preflight checklist, corrections-log warnings or an explicit none line, and a governing-rules block or an explicit none line.",
+      "files": [
+        "evals/files/team-notes-sharing-spec.md"
+      ],
+      "assertions": [
+        "The output begins with the manifest resolution and a file resolution table marking each required record FOUND or MISSING",
+        "Output contains a summary table listing every story with Story ID, Title, Labels, Priority, Track and Dependencies columns",
+        "Stories are grouped by track, each group under a track header, ordered by dependency inside the track",
+        "The batch is treated as an initiative: a tracking issue is planned and the stories are numbered in sequence",
+        "Every story header carries Category, Workspace, Priority and Track",
+        "Every story has Description, What We Are Building, Acceptance Criteria, Implementation Notes, Verification Steps, Preflight Checklist, Files to Create/Modify and Dependencies sections",
+        "No story contains a time estimate, size estimate or story points",
+        "Labels are drawn only from the output of gh label list; no label is invented or created",
+        "Areas in issue titles come from the manifest areas list, or a proposed new area is named for the operator",
+        "A story covers role checks on the existing note endpoints, and its acceptance criteria require a forbidden error for a viewer calling a write endpoint",
+        "The data model story lists the membership, invite and revision models, and the endpoint stories depend on it explicitly",
+        "Out-of-scope items from the spec (public links, single-note sharing, comments) do not appear as stories",
+        "The live updates story leaves the polling or push choice to the architecture record or flags it as an open decision, rather than deciding it silently",
+        "Every story's Implementation Notes contain corrections-log warning blocks, the empty-log note, or an explicit none-apply line",
+        "Every story's Implementation Notes contain a governing-rules block or an explicit none-apply line",
+        "Every code story prescribes the docs skill and names a pattern folder under the reference documentation root",
+        "No story markdown file is written into the repository; the deliverable is chat output and, after confirmation, GitHub issues",
+        "No issue is created before the operator confirms the batch",
+        "Issues are created with gh issue create --body-file from a temp file"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "File a bug: on the notes search page, a search for a tag that contains a hyphen returns no results. The search area already exists.",
+      "expected_output": "A single, fully specified bug story in an existing area. The skill prints the file resolution table, cross-references the search route against the state document, writes the story in the full structure, picks existing labels, and creates the issue directly without a confirmation round, then reports the created issue number and title.",
+      "files": [],
+      "assertions": [
+        "The file resolution table is printed before the story is written",
+        "The story uses the bug-fix naming category with an area from the manifest areas list",
+        "The search route or endpoint is checked against Part 1 of the state document or the live code",
+        "The story has the full section structure, including Verification Steps and a Preflight Checklist",
+        "Labels come only from gh label list output",
+        "The issue is created directly, without a confirmation round, because it is a single trivial fully specified story",
+        "The created issue is confirmed with gh issue view and its number and title are reported"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+@AGENTS.md
+
+Claude Code notes. The line above imports the hub, so every rule in it applies here; keep project rules in the hub, not in this file. With the checkrein plugin installed, the skills run as `/checkrein:<skill>`, for example `/checkrein:docs` or `/checkrein:preflight-check`. A nested `CLAUDE.md` inside `reference-documentation/` or inside a folder named in the manifest's `protected_trees` list loads whenever the agent reads a file beneath it; use it for a short folder-level reminder. A later checkrein release may add plugin hooks that enforce the production-access and protected-tree rules; until then the hub's rules stand on their own.

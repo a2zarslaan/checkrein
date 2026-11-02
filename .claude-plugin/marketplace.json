@@ -1,0 +1,14 @@
+{
+  "name": "checkrein",
+  "owner": {
+    "name": "a2zarslaan"
+  },
+  "description": "Marketplace for checkrein, a free software engineering workflow for coding agents.",
+  "plugins": [
+    {
+      "name": "checkrein",
+      "source": "./",
+      "description": "Reins and checks for coding agents: hub document, living records, nine skills and mechanical checks."
+    }
+  ]
+}

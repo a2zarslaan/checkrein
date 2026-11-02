@@ -1,0 +1,8 @@
+# Example term list for scripts/repo-checks.mjs (leak check).
+# Copy this file to .leakcheck/terms.txt (gitignored) and list the words that must never appear
+# in this repository: the private project a kit was extracted from, its vendors, its people.
+# One JavaScript regular expression per line. Lines starting with # are comments.
+# Matching is case-insensitive unless the line starts with (?-i), which makes that line case-sensitive.
+\bacme\b
+acme-corp\.example
+(?-i)\bACME\b

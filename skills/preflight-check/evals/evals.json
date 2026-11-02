@@ -1,0 +1,117 @@
+{
+  "skill_name": "preflight-check",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I'm done with the notes export feature on this branch. Create the PR.",
+      "expected_output": "The agent runs preflight before any PR exists: Step 0 reads checkrein.json, substitutes the tokens and prints the file resolution table; Step 1 diffs against the merge base with trunk using NUL-delimited lists; Step 2 runs each configured command verbatim and reports empty ones as NOT CONFIGURED; Steps 3 to 6 run; the report ends with PASS or BLOCKED. The agent does not open the PR inside the skill and, on PASS, reminds the author of the hub's PR body structure.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "preflight_before_pr",
+          "description": "No pull request is opened before the preflight report and its verdict are printed"
+        },
+        {
+          "name": "file_resolution_table_first",
+          "description": "The file resolution table (hub, corrections log, state document, working docs folder) is printed before any check runs"
+        },
+        {
+          "name": "merge_base_diff",
+          "description": "The changed-file list comes from git merge-base with the manifest's trunk, not from a two-dot diff against the trunk tip"
+        },
+        {
+          "name": "newline_safe_lists",
+          "description": "File lists are built with -z and consumed with xargs -0 or a NUL-safe read loop, never with bare xargs"
+        },
+        {
+          "name": "commands_verbatim",
+          "description": "Lint, typecheck, test and format check run exactly as the manifest states them; an empty command is reported as NOT CONFIGURED, not as a failure"
+        },
+        {
+          "name": "pr_body_reminder",
+          "description": "On PASS the agent lists the hub's PR body sections: Summary, Changes, Files Changed table, Test Plan, and the issue-closing footer with the issue number verified"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Run preflight on this branch.",
+      "expected_output": "The repository has no checkrein.json. The agent stops at Step 0, prints a BLOCKED verdict naming the missing manifest, tells the operator to run the init skill, and runs no other step. It does not invent manifest values or fall back to guessed commands.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "stops_without_manifest",
+          "description": "No lint, test or scan step runs when the manifest is missing"
+        },
+        {
+          "name": "points_to_init",
+          "description": "The message tells the operator to run the init skill"
+        },
+        {
+          "name": "no_guessed_commands",
+          "description": "The agent does not guess a lint or test command from the repository's files"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Preflight check please. I bumped the date library and added a file called 'export helpers.ts'.",
+      "expected_output": "The dependency manifest diff shows the new version written as a caret range and the lockfile unchanged. The exact-pin step reports two Critical failures (range specifier, lockfile not moved with its manifest) and the verdict is BLOCKED with both listed. The file with a space in its name is classified and scanned like any other file.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "range_specifier_blocks",
+          "description": "A caret, tilde or other range in a changed dependency line is a Critical failure"
+        },
+        {
+          "name": "lockfile_must_move",
+          "description": "A manifest dependency change without a lockfile change in the same diff is a Critical failure"
+        },
+        {
+          "name": "spaced_filename_scanned",
+          "description": "The file 'export helpers.ts' appears in the changed-file count and the scans without being split into two names"
+        },
+        {
+          "name": "blocked_verdict_lists_reasons",
+          "description": "The verdict is BLOCKED and numbers each critical failure with its file and the change needed"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Ready for PR? I haven't committed the last two edits yet but they're small.",
+      "expected_output": "The working-tree check finds modified tracked files and reports a Critical failure: the PR carries only commits, so a PASS on a dirty tree would certify code the PR does not ship. The agent asks for the edits to be committed or stashed and preflight run again. It does not commit them itself.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "dirty_tree_blocks",
+          "description": "Uncommitted changes to tracked files produce a Critical failure and a BLOCKED verdict"
+        },
+        {
+          "name": "no_silent_fix",
+          "description": "The agent does not commit, stash or edit anything on its own"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Run checks before I open the PR for the wiki search refactor.",
+      "expected_output": "The corrections step builds the index by searching rule headings only, scans every heading, pulls about 40 lines for each matching entry by line number, and never reads the log in full. A matching search hit on a line the branch did not touch is reported as PRE-EXISTING and does not block.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "headings_only_index",
+          "description": "The corrections index is built with a heading search, and the full log is never read"
+        },
+        {
+          "name": "process_domain_always",
+          "description": "Rules tagged process are checked on every run regardless of the touched workspaces"
+        },
+        {
+          "name": "pre_existing_not_blocking",
+          "description": "A match only on untouched lines is reported as PRE-EXISTING, not as a VIOLATION"
+        }
+      ]
+    }
+  ]
+}

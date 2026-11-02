@@ -1,0 +1,7 @@
+#!/bin/sh
+# Runs the repository checks and the script tests before every commit.
+# Enable once per clone: git config core.hooksPath .githooks
+set -e
+cd "$(git rev-parse --show-toplevel)"
+node scripts/repo-checks.mjs --quiet
+node --test scripts/*.test.mjs

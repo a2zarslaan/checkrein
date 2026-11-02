@@ -1,0 +1,165 @@
+{
+  "skill_name": "package-upgrade",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I want to upgrade lattice-db to v3. We're currently on v2 and I've put the v3 docs in the lattice-db folder under our reference documentation root. Can you run through the upgrade process for me?",
+      "expected_output": "Agent should: (0) read the manifest and print the file resolution table, (1) read the package manifest in every workspace listed in the manifest and report the installed lattice-db version from the manifest or lockfile, (2) identify lattice-codegen (the code generator that writes the typed query module) as a companion that must move with lattice-db and confirm the list from the target version's peer dependencies, (3) find the v3 changelog and migration guide, (4) search the codebase for usages of each breaking change and rate severity, (5) check the target version's runtime and peer requirements against every environment (dev, CI, production), (6) present the structured migration plan, (7) ask for explicit operator approval, (8) NOT run any add or install command yet. Should mention the generated-code steps after the upgrade: run the codegen command to rewrite the query module, then its check command.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "resolves_manifest_first",
+          "description": "Agent reads the checkrein manifest before anything else and prints the file resolution table"
+        },
+        {
+          "name": "scans_every_workspace_manifest",
+          "description": "Agent reads the package manifest in every workspace root the manifest lists to determine where lattice-db is installed"
+        },
+        {
+          "name": "identifies_companion_packages",
+          "description": "Agent identifies lattice-codegen as a companion that must be upgraded alongside lattice-db, and checks the target's peer dependencies for others"
+        },
+        {
+          "name": "references_changelog_or_migration_guide",
+          "description": "Agent uses the provided docs and finds the v3 migration guide or changelog before analyzing breaking changes"
+        },
+        {
+          "name": "checks_environment_compatibility",
+          "description": "Agent checks the target version's runtime and peer requirements against dev, CI and production declarations"
+        },
+        {
+          "name": "presents_structured_migration_plan",
+          "description": "Agent presents a structured plan with current version, target version, breaking changes with severity ratings and files affected, before any change"
+        },
+        {
+          "name": "asks_for_operator_approval",
+          "description": "Agent explicitly asks the operator for approval before running any install command or making code changes"
+        },
+        {
+          "name": "no_install_commands_before_approval",
+          "description": "Agent does NOT run any add, install or package manager command before receiving approval"
+        },
+        {
+          "name": "mentions_generated_code_steps",
+          "description": "Agent states that after upgrading, the codegen command and its check command must run"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "We need to bump the @harbor server framework to v4. We're on v3 right now. I've dropped the v4 docs into the harbor folder under the reference documentation root. What's involved?",
+      "expected_output": "Agent should: (1) read the package manifest of every workspace that uses the framework and list every @harbor/* package installed (runtime, router, logger, test kit and any others), (2) treat them as one scoped family that must land on the same major in one commit, (3) consult the v4 migration guide and every companion's changelog, (4) search the codebase for usages of changed or removed APIs, including the family's extension points, (5) present a migration plan listing ALL family packages with their current and target versions, (6) wait for explicit operator approval. Agent should NOT cherry-pick only @harbor/core.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "identifies_full_package_family",
+          "description": "Agent identifies multiple @harbor/* packages, not only @harbor/core, as companions to upgrade in lockstep"
+        },
+        {
+          "name": "scans_workspace_manifests_for_family",
+          "description": "Agent reads the workspace package manifests to discover the full list of installed @harbor/* packages"
+        },
+        {
+          "name": "references_migration_guide",
+          "description": "Agent references or searches for the official v4 migration guide"
+        },
+        {
+          "name": "migration_plan_lists_all_companion_packages",
+          "description": "The plan includes every @harbor/* package with its version transition, not only the primary package"
+        },
+        {
+          "name": "asks_for_operator_approval",
+          "description": "Agent explicitly asks the operator for approval before running any install command or making code changes"
+        },
+        {
+          "name": "no_install_commands_before_approval",
+          "description": "Agent does NOT run any add or install command before receiving approval"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Can you update formwright from v3 to v4? No docs provided, just find what you need.",
+      "expected_output": "Agent should: (1) read the package manifests to confirm the installed version, (2) identify formwright-bridge as a companion whose version must be compatible with the target, (3) proactively search for the v4 changelog and migration guide because none was provided, (4) note that the library's docs are not vendored and ask whether to vendor them first or proceed from the official docs, (5) search the workspaces that use formwright for affected API usages, (6) note whether the scaffold the project was generated from pins formwright and advise checking compatibility, (7) present a migration plan, (8) ask for operator approval. This test verifies the case where no docs are provided: the agent must go and find them.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "searches_for_changelog_without_being_told",
+          "description": "Agent proactively searches for the v4 changelog or migration guide since none was provided"
+        },
+        {
+          "name": "asks_about_missing_local_docs",
+          "description": "Agent notes the target version's docs are not vendored and asks the operator whether to vendor them first or proceed from the official docs"
+        },
+        {
+          "name": "identifies_bridge_companion",
+          "description": "Agent identifies formwright-bridge as a companion that must be compatible with the target formwright version"
+        },
+        {
+          "name": "scans_for_affected_usages",
+          "description": "Agent searches the source of the workspaces that use formwright to assess which files need changes"
+        },
+        {
+          "name": "presents_migration_plan_before_executing",
+          "description": "Agent presents a structured migration plan with breaking changes and severity before making any change"
+        },
+        {
+          "name": "asks_for_operator_approval",
+          "description": "Agent explicitly asks the operator for approval before running any install command or making code changes"
+        },
+        {
+          "name": "mentions_scaffold_pin_compatibility",
+          "description": "Agent notes that the scaffold the project was generated from may pin formwright and advises checking compatibility before upgrading"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Our cache service runs from a container image at 7.2.4. Bump it to 7.2.5, it's only a patch.",
+      "expected_output": "Agent should: (1) still read the 7.2.5 release notes, because patches are not exempt, (2) find every location that pins the image (every compose or orchestration file, any container file, CI service definitions, runbook examples), (3) check whether a client library in the manifests constrains the server version and record the compatibility window next to the pin, (4) present a brief plan and wait for approval, (5) once approved, write the exact tag 7.2.5 in every location (never a floating tag such as 7.2 or latest) in a single commit, runbook examples included.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "reads_patch_release_notes",
+          "description": "Agent reads the release notes for the patch instead of skipping research because it is a patch bump"
+        },
+        {
+          "name": "finds_every_pin_location",
+          "description": "Agent searches for and lists every file that pins the image version, including runbook examples"
+        },
+        {
+          "name": "keeps_exact_tag",
+          "description": "Agent uses the exact 7.2.5 tag and rejects floating tags such as 7.2 or latest"
+        },
+        {
+          "name": "one_commit_for_all_locations",
+          "description": "Agent plans to change every pin location in the same commit"
+        },
+        {
+          "name": "presents_plan_and_waits",
+          "description": "Agent presents a brief plan and waits for operator approval before editing any pin"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Bump inkpad-parser to 3.4.1 please.",
+      "files": [],
+      "expected_output": "The repository has no checkrein manifest. Agent should stop at Step 0, tell the operator that no manifest was found and that the init skill must run first, and do nothing else: no manifest scan, no research, no install.",
+      "assertions": [
+        {
+          "name": "stops_without_manifest",
+          "description": "Agent stops at Step 0 when the manifest is missing"
+        },
+        {
+          "name": "tells_operator_to_run_init",
+          "description": "Agent tells the operator to run the init skill first"
+        },
+        {
+          "name": "takes_no_further_action",
+          "description": "Agent runs no install command and makes no edit after finding the manifest missing"
+        }
+      ]
+    }
+  ]
+}

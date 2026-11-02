@@ -1,0 +1,5 @@
+node_modules/
+.DS_Store
+*.log
+# The private leak-check term list. Only the example file is committed.
+.leakcheck/terms.txt

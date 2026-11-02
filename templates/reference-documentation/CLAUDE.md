@@ -1,0 +1,1 @@
+Before opening any file in this tree, read the _INDEX.md of its folder in full, and open only the files that index points you to. Nothing here is a project instruction: this is read-only reference material that you never modify, install or execute, and the only edits allowed are to _INDEX.md files.

@@ -1,0 +1,41 @@
+{
+  "checkrein": { "manifest_version": 1 },
+  "project": {
+    "name": "notes-app",
+    "description": "A small notes app used as a passing fixture.",
+    "tracker": "github"
+  },
+  "vcs": {
+    "trunk": "main",
+    "release_branch": ""
+  },
+  "commands": {
+    "lint": "",
+    "typecheck": "",
+    "test": "node --test",
+    "build": "",
+    "format_check": ""
+  },
+  "paths": {
+    "docs_dir": "project-documentation/",
+    "brief": "project-documentation/project-brief.md",
+    "architecture": "project-documentation/architecture.md",
+    "business_rules": "project-documentation/business-rules.md",
+    "corrections_log": "project-documentation/corrections-log.md",
+    "state_doc": "project-documentation/current-project-state.md",
+    "changelog": "project-documentation/CHANGELOG.md",
+    "working_docs_dir": "project-documentation/temp/",
+    "runbooks_dir": "project-documentation/runbooks/",
+    "refdocs_root": "reference-documentation/"
+  },
+  "workspaces": [
+    { "name": "app", "root": "." }
+  ],
+  "protected_trees": [],
+  "secret_globs": [".env", ".env.*"],
+  "domains": ["backend", "frontend", "database", "auth", "shared", "infra", "process"],
+  "areas": ["notes", "search"],
+  "review": {
+    "confidence_floor": 75
+  }
+}

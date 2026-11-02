@@ -1,0 +1,21 @@
+{
+  "name": "checkrein",
+  "version": "0.1.0",
+  "description": "Reins and checks for coding agents. A harness-neutral software engineering workflow: a hub document, living records, nine skills and mechanical checks.",
+  "author": {
+    "name": "a2zarslaan"
+  },
+  "repository": "https://github.com/a2zarslaan/checkrein",
+  "homepage": "https://github.com/a2zarslaan/checkrein",
+  "license": "MIT",
+  "keywords": [
+    "workflow",
+    "agents",
+    "skills",
+    "documentation",
+    "code-review",
+    "corrections-log",
+    "preflight",
+    "post-merge"
+  ]
+}
