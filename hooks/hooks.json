@@ -1,0 +1,20 @@
+{
+  "description": "checkrein enforcement: production access, protected trees, secret files, approvals before irreversible actions, and consulted-evidence at the end of a turn. Active only in a repository whose checkrein.json is manifest version 2.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob",
+        "hooks": [
+          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/guards/pretooluse.mjs"], "timeout": 10 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/guards/stop-consulted.mjs"], "timeout": 15 }
+        ]
+      }
+    ]
+  }
+}

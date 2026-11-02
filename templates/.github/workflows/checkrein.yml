@@ -1,0 +1,29 @@
+# checkrein: runs the adopter check and the diff check on every pull request to the trunk.
+# The init or upgrade skill sets the branch below (and the one in the diff check step) to the
+# manifest's vcs.trunk at install; if the trunk changes, edit both.
+name: checkrein
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checkrein:
+    runs-on: ubuntu-latest
+    steps:
+      # Actions and the runtime are pinned to exact versions (Version Parity in the hub). Set
+      # node-version to the project's pinned runtime, the same exact version declared elsewhere.
+      - uses: actions/checkout@v4.2.2
+        with:
+          # Full history, so the merge base with the trunk is available to the diff check.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 20.19.0
+      - name: Adopter check
+        run: node checkrein-check.mjs
+      - name: Diff check
+        run: node checkrein-diff-check.mjs --range origin/main...HEAD

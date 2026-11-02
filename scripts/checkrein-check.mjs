@@ -9,6 +9,8 @@
 // --quiet  print findings only, no success summary
 //
 // Checks, in order: manifest, corrections, working-docs, state-doc, changelog, em-dash, cross-refs.
+// The manifest check accepts manifest versions 1 and 2. Version 2 keys are optional; each one present
+// is checked for type and shape, and in a version 1 manifest they are reported as unknown keys.
 // Every finding is one line on stdout, prefixed with the check name. A warning never fails the run.
 // The working-docs check reads the direct children of the working docs folder only.
 //
@@ -52,6 +54,19 @@ const CONTRACT = {
   areas: null,
   review: { confidence_floor: null },
 };
+
+// Manifest version 2 adds these keys. Each is optional (the guards fill a missing one with its
+// default) and is checked for type and shape only when present. In a version 1 manifest they are
+// unknown keys, because nothing reads them until the manifest says version 2.
+const CONTRACT_V2 = {
+  production_markers: { hosts: null, logins: null, ports: null, database_url_patterns: null },
+  example_globs: null,
+  approval: { ask: null, dependency_commands: null },
+  consulted: { mode: null, code_globs: null, required_reads: null },
+};
+const SUPPORTED_VERSIONS = [1, 2];
+const APPROVAL_CLASSES = ['push', 'pr_create', 'pr_merge', 'dependency_change'];
+const CONSULTED_MODES = ['block', 'warn'];
 
 const STATE_PARTS = [
   '## Part 1: Structural inventory',
@@ -217,8 +232,15 @@ function checkManifest() {
     return null;
   }
 
+  const version = manifest.checkrein?.manifest_version;
   for (const key of Object.keys(manifest)) {
-    if (!(key in CONTRACT)) fail(check, `unknown top-level key "${key}"`);
+    if (key in CONTRACT) continue;
+    if (key in CONTRACT_V2) {
+      if (version !== 1) continue; // checked below for version 2; an unsupported version is reported once
+      fail(check, `unknown top-level key "${key}" (a manifest version 2 key; the upgrade skill moves the manifest to version 2)`);
+    } else {
+      fail(check, `unknown top-level key "${key}"`);
+    }
   }
   for (const [key, shape] of Object.entries(CONTRACT)) {
     if (!(key in manifest)) {
@@ -238,9 +260,10 @@ function checkManifest() {
     }
   }
 
-  if (manifest.checkrein?.manifest_version !== 1) {
-    fail(check, `checkrein.manifest_version must be 1 (found ${JSON.stringify(manifest.checkrein?.manifest_version)})`);
+  if (!SUPPORTED_VERSIONS.includes(version)) {
+    fail(check, `checkrein.manifest_version must be 1 or 2 (found ${JSON.stringify(version)})`);
   }
+  if (version === 2) checkManifestV2(check, manifest);
 
   for (const group of ['project', 'vcs', 'commands']) {
     if (!isPlainObject(manifest[group])) continue;
@@ -318,6 +341,95 @@ function checkManifest() {
   }
 
   return manifest;
+}
+
+// The version 2 keys: every key is optional, and a present key must have the documented shape.
+// A list rule reports a value that is not an array, then the first item that breaks the rule.
+function checkManifestV2(check, manifest) {
+  const listOf = (label, value, itemOk, plural, singular) => {
+    if (!Array.isArray(value)) {
+      fail(check, `"${label}" must be an array of ${plural}`);
+      return;
+    }
+    const bad = value.findIndex((item) => !itemOk(item));
+    if (bad !== -1) fail(check, `"${label}[${bad}]" must be ${singular} (found ${JSON.stringify(value[bad])})`);
+  };
+  const nonEmpty = (item) => typeof item === 'string' && item.trim() !== '';
+  const noSpace = (item) => nonEmpty(item) && !/\s/.test(item);
+
+  for (const [key, shape] of Object.entries(CONTRACT_V2)) {
+    if (!(key in manifest) || shape === null) continue;
+    if (!isPlainObject(manifest[key])) {
+      fail(check, `"${key}" must be an object`);
+      continue;
+    }
+    for (const sub of Object.keys(manifest[key])) {
+      if (!(sub in shape)) fail(check, `unknown key "${key}.${sub}"`);
+    }
+  }
+  const sub = (key, name) => (isPlainObject(manifest[key]) && name in manifest[key] ? { present: true, value: manifest[key][name] } : { present: false });
+
+  const hosts = sub('production_markers', 'hosts');
+  if (hosts.present) listOf('production_markers.hosts', hosts.value, noSpace, 'hostnames or addresses', 'a hostname or address with no spaces');
+  const logins = sub('production_markers', 'logins');
+  if (logins.present) listOf('production_markers.logins', logins.value, (item) => noSpace(item) && /^[^@]+@/.test(item), 'logins', 'a login written as "user@" or "user@host"');
+  const ports = sub('production_markers', 'ports');
+  if (ports.present) {
+    const portOk = (item) => {
+      const n = typeof item === 'string' && /^\d+$/.test(item) ? Number(item) : item;
+      return Number.isInteger(n) && n >= 1 && n <= 65535;
+    };
+    listOf('production_markers.ports', ports.value, portOk, 'port numbers', 'a port number from 1 to 65535');
+  }
+  const urls = sub('production_markers', 'database_url_patterns');
+  if (urls.present) {
+    if (!Array.isArray(urls.value)) fail(check, '"production_markers.database_url_patterns" must be an array of regular expression sources');
+    else {
+      urls.value.forEach((source, i) => {
+        const label = `production_markers.database_url_patterns[${i}]`;
+        if (!nonEmpty(source)) {
+          fail(check, `"${label}" must be a non-empty regular expression source (found ${JSON.stringify(source)})`);
+          return;
+        }
+        try {
+          new RegExp(source);
+        } catch (error) {
+          fail(check, `"${label}" is not a valid regular expression: ${error.message}`);
+        }
+      });
+    }
+  }
+
+  if ('example_globs' in manifest) listOf('example_globs', manifest.example_globs, nonEmpty, 'glob strings', 'a non-empty glob string');
+
+  const ask = sub('approval', 'ask');
+  if (ask.present) {
+    if (!Array.isArray(ask.value)) fail(check, `"approval.ask" must be an array drawn from ${APPROVAL_CLASSES.join(', ')}`);
+    else {
+      ask.value.forEach((item, i) => {
+        if (!APPROVAL_CLASSES.includes(item)) fail(check, `"approval.ask[${i}]" must be one of ${APPROVAL_CLASSES.join(', ')} (found ${JSON.stringify(item)})`);
+      });
+    }
+  }
+  const depCommands = sub('approval', 'dependency_commands');
+  if (depCommands.present) listOf('approval.dependency_commands', depCommands.value, nonEmpty, 'command prefixes', 'a non-empty command prefix');
+
+  const mode = sub('consulted', 'mode');
+  if (mode.present && !CONSULTED_MODES.includes(mode.value)) {
+    fail(check, `"consulted.mode" must be "block" or "warn" (found ${JSON.stringify(mode.value)})`);
+  }
+  const codeGlobs = sub('consulted', 'code_globs');
+  if (codeGlobs.present) listOf('consulted.code_globs', codeGlobs.value, nonEmpty, 'glob strings', 'a non-empty glob string');
+  const reads = sub('consulted', 'required_reads');
+  if (reads.present) {
+    if (!Array.isArray(reads.value) || !reads.value.every(nonEmpty)) {
+      fail(check, '"consulted.required_reads" must be an array of non-empty repository-relative file paths');
+    } else {
+      for (const file of reads.value) {
+        if (!isFile(fromRoot(file))) warn(check, `consulted.required_reads entry "${file}" is not a file in the repository`);
+      }
+    }
+  }
 }
 
 // Resolve a manifest path to an absolute path only when it exists in the expected form.

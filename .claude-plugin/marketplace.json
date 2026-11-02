@@ -8,7 +8,7 @@
     {
       "name": "checkrein",
       "source": "./",
-      "description": "Reins and checks for coding agents: hub document, living records, nine skills and mechanical checks."
+      "description": "Reins and checks for coding agents: a hub document, document templates, ten skills, mechanical checks, and enforcement hooks (production access, protected trees, secret files, approvals, consulted evidence) active only in a repository whose manifest is version 2."
     }
   ]
 }

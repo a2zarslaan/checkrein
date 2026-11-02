@@ -1,6 +1,6 @@
 {
   "checkrein": {
-    "manifest_version": 1
+    "manifest_version": 2
   },
   "project": {
     "name": "",
@@ -53,5 +53,33 @@
   "areas": [],
   "review": {
     "confidence_floor": 75
+  },
+  "production_markers": {
+    "hosts": [],
+    "logins": [],
+    "ports": [],
+    "database_url_patterns": []
+  },
+  "example_globs": [
+    ".env.example",
+    "*.example",
+    "*.sample"
+  ],
+  "approval": {
+    "ask": [
+      "push",
+      "pr_create",
+      "pr_merge",
+      "dependency_change"
+    ],
+    "dependency_commands": []
+  },
+  "consulted": {
+    "mode": "block",
+    "code_globs": [
+      "src/**",
+      "**/src/**"
+    ],
+    "required_reads": []
   }
 }

@@ -1,5 +1,5 @@
 {
-  "checkrein": { "manifest_version": 1 },
+  "checkrein": { "manifest_version": 2 },
   "project": {
     "name": "notes-app",
     "description": "A small notes app used as a passing fixture.",
@@ -37,5 +37,21 @@
   "areas": ["notes", "search"],
   "review": {
     "confidence_floor": 75
+  },
+  "production_markers": {
+    "hosts": ["notes.example.internal", "10.20.30.40"],
+    "logins": ["deploy-user@", "ops@notes.example.internal"],
+    "ports": [55000],
+    "database_url_patterns": ["[a-z]+://[^\\s]*@db\\.example\\.internal"]
+  },
+  "example_globs": [".env.example", "*.example", "*.sample"],
+  "approval": {
+    "ask": ["push", "pr_create", "pr_merge", "dependency_change"],
+    "dependency_commands": ["uv add", "bundle add"]
+  },
+  "consulted": {
+    "mode": "block",
+    "code_globs": ["src/**", "**/src/**"],
+    "required_reads": ["project-documentation/architecture.md"]
   }
 }

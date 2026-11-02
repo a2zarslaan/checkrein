@@ -1,6 +1,6 @@
 # checkrein development plan: three tiers
 
-This is the plan the maintainer builds checkrein from. Tier 1 is the product today. Tiers 2 and 3 are designed here so the design is not lost, and each one starts only when the demand rule in section 5 is met. Nothing in tiers 2 or 3 exists until a release ships it, and no other document in this repository describes those tiers as if they do.
+This is the plan the maintainer builds checkrein from. Tier 1 is released as 0.1.0. Tier 2 is release 0.2.0 (section 3 says where it stands). Tier 3 is designed here so the design is not lost, and each piece of it starts only when the demand rule in section 5 is met. Nothing in tier 3 exists until a release ships it, and no other document in this repository describes it as if it does.
 
 Two roles appear throughout. The maintainer is the person who develops and releases checkrein itself. The operator is the human who owns an adopting repository and makes its decisions.
 
@@ -98,7 +98,9 @@ Tier 1 is text and checks. Text does not stop an agent that ignores it. The adop
 
 ## 3. Tier 2: enforcement for Claude Code
 
-Tier 2 ships only after three adopters ask for enforcement (section 5). It is specific to Claude Code because that is the harness whose hook events can stop a tool call before it runs.
+**Status.** Tier 2 is release 0.2.0: the guards under `guards/`, the hooks file under `hooks/`, manifest version 2, the `upgrade` skill, and the diff check with its git hook and CI templates. The demand rule (section 5) governs shipping it to the official plugin directory; the maintainer may release it earlier as a deliberate decision. The decisions the design below left open are settled in section 8, and whether enforcement is free or paid is settled in section 9.
+
+Tier 2 is specific to Claude Code because that is the harness whose hook events can stop a tool call before it runs.
 
 ### Lessons carried in
 
@@ -115,20 +117,22 @@ The production project the method came from ran three shell guards (production a
 
 ### Contents
 
+Each guard below says what it does; the README's enforcement table states, next to each guard, what it cannot see.
+
 - A hooks file in the plugin (hooks/hooks.json), registering one PreToolUse entry for Bash and the file tools, and one Stop entry. Each runs a Node entry point under the plugin root; `${CLAUDE_PROJECT_DIR}` gives the adopter's repository root, where the guards read the manifest.
-- **Production-access guard** (PreToolUse on Bash). Denies SSH-family clients in command position (ssh, scp, sftp, rsync, autossh, sshpass, mosh, and absolute paths to them), remote shell schemes, and any literal named in the manifest's production list: hosts, login strings, tunnel ports, and production database URLs. A denial is final; the reason tells the agent to diagnose on a local copy and to hand the operator a single-line command when a production-side action is needed.
-- **Protected-tree guard** (PreToolUse on Bash, Read, Edit, Write, Grep, Glob). Denies reads of any path under `protected_trees` through the file tools and through content readers in shell commands. Allows metadata commands and the retirement commands the `post-merge` skill uses to move working docs into an archive (version-control add, move into the tree, commit, status). Denies a recursive search from the repository root that would walk a protected tree without naming it. A deliberate read named by the operator passes when the command starts with `CHECKREIN_ALLOW_PROTECTED=1`; the hub states that the agent never sets it on its own initiative.
+- **Production-access guard** (PreToolUse on Bash). Denies SSH-family clients in command position (ssh, scp, sftp, rsync, autossh, sshpass, mosh, ssh-copy-id, telnet, and absolute paths to them), remote shell schemes, and any literal named in the manifest's production list: hosts, login strings, tunnel ports, and production database URLs. A denial is final; the reason tells the agent to diagnose on a local copy and to hand the operator a single-line command when a production-side action is needed.
+- **Protected-tree guard** (PreToolUse on Bash, Read, Edit, Write, Grep, Glob). Denies reads of any path under `protected_trees` through the file tools and through content readers in shell commands. Allows metadata commands and the retirement commands the `post-merge` skill uses to move working docs into an archive (version-control add, move into the tree, commit, status). Denies a recursive grep from the repository root that would walk a protected tree without naming it. A deliberate read named by the operator passes when the command starts with `CHECKREIN_ALLOW_PROTECTED=1`; the hub states that the agent never sets it on its own initiative.
 - **Secrets guard** (PreToolUse on Bash and the file tools). Denies reading or writing any file matching `secret_globs`, including redirections into or out of one, while allowing metadata commands and any file the manifest marks as an example template.
-- **Approval guard** (PreToolUse on Bash). Asks, never denies, before a push, a pull request creation, a pull request merge, a mutating API call that creates or merges pull requests or moves refs, and any dependency or lockfile mutation. The dependency commands come from the manifest because package managers differ. A lockfile-faithful install stays unprompted.
-- **Consulted-evidence Stop hook.** When the turn edited files matching the manifest's code globs, it searches the session transcript for evidence that the corrections log was read: a read tool call on it, a search whose path names it, or a shell command that reads it. Missing evidence blocks the end of the turn once with the file name; the harness flag for a repeated stop guarantees the second stop passes, so it cannot loop. The transcript is the evidence; no file is written to record a read.
+- **Approval guard** (PreToolUse on Bash). Asks, never denies, before a push, a pull request creation, a pull request merge, a mutating API call that creates or merges pull requests, moves refs or writes file contents, and any dependency or lockfile mutation. The dependency commands come from the manifest because package managers differ. A lockfile-faithful install stays unprompted.
+- **Consulted-evidence Stop hook.** When the turn edited files matching the manifest's code globs, it searches the session transcript for evidence that the corrections log was read: a read tool call on it, a search whose path names it, or a shell command that reads it. Missing evidence blocks the end of the turn once with the file name, or shows a warning when the manifest's `consulted.mode` is `warn`; the harness flag for a repeated stop guarantees the second stop passes, so it cannot loop. The transcript is the evidence; no file is written to record a read. A transcript the harness has not written yet allows, so a lag never produces a false block.
 
 ### Design constraints
 
 - **Zero dependencies.** Node standard library only, the same floor as the tier 1 scripts.
-- **Fail closed.** A parse error, an unreadable manifest, or an internal exception produces an ask with the error text, never a silent allow.
-- **One evaluator over normalized commands.** Every Bash guard calls the same evaluator, which removes backslash-newline continuations, tokenizes with awareness of single quotes, double quotes and escapes (a separator inside quotes is argument data), splits on `;`, `&&`, `||`, `|`, `&` and newlines, opens `$( )`, backticks and parenthesized subshells into their own segments, unwraps `sh -c '...'` and its relatives by evaluating the quoted string recursively, strips variable assignments and wrapper commands, and separates redirection targets from arguments. Guards then match on segments, never on raw text.
+- **Fail closed.** A parse error, an unreadable manifest, or an internal exception produces an ask with the error text before a tool call, one block with the error text at the end of a turn, and exit 1 in the diff check, never a silent allow.
+- **One evaluator over normalized commands.** Every Bash guard calls the same evaluator, which removes backslash-newline continuations, tokenizes with awareness of single quotes, double quotes and escapes (a separator inside quotes is argument data), splits on `;`, `&&`, `||`, `|`, `&` and newlines, opens `$( )`, backticks and parenthesized subshells into their own segments, unwraps `sh -c '...'` and its relatives by evaluating the quoted string recursively, strips variable assignments and wrapper commands, and separates redirection targets from arguments. Guards then match on segments first, with raw text only where a rule says so (production markers, and a protected tree named in a segment's text).
 - **Cases as data.** An allow and deny case file (one JSON array of command, tool, expected decision, and a one-line reason) holds at least 100 cases and is run by `node --test`. Every exception, every past bypass, and every false positive an adopter reports becomes a case before the fix lands.
-- **Honest scope.** The hooks are a guardrail for cooperative agents, not a security boundary. A determined evasion (a path assembled from variables, a symlink made in an earlier command, a script written now and run later) defeats any lexical matcher. The hub rule is what stops it; for an operating-system boundary, the operator layers the harness sandbox on top. Every guard's reason text and the README say this.
+- **Honest scope.** The hooks are a guardrail for cooperative agents, not a security boundary. A determined evasion (a path assembled from variables, a symlink made in an earlier command, a script written now and run later) defeats any lexical matcher. The hub rule is what stops it; for an operating-system boundary, the operator layers the harness sandbox on top. The README and the `init` and `upgrade` summaries say this.
 
 ### Manifest additions
 
@@ -142,16 +146,26 @@ Tier 2 raises `manifest_version` to 2; the adopter check accepts both, and every
 
 ### Fallback outside Claude Code
 
-Other harnesses expose no comparable hook events, so tier 2 ships two fallbacks that run the same evaluator:
+checkrein's guards run only in Claude Code, so for other harnesses tier 2 ships two fallbacks that run one diff check (`guards/diff-check.mjs`, copied to the adopter's root as a standalone file; it carries its own copies of the manifest path helpers, and a test keeps them equal to `guards/manifest.mjs`):
 
-- A pre-commit and pre-push pair under .githooks, enabled with one git config line, that runs the evaluator over the staged diff and the outgoing commits: secret files added, protected trees modified other than by retirement, production markers written into tracked files.
-- A CI job that runs the adopter check and the same diff evaluation on every pull request to the trunk.
+- A pre-commit and pre-push pair under .githooks, enabled with one git config line, that runs the diff check over the staged diff and the outgoing commits. It fails on secret files added or modified and on protected trees modified, deleted or moved out of (adding a file is retirement and passes), and warns on production markers written into tracked files.
+- A CI job that runs the adopter check and the same diff check on every pull request to the trunk, over the range from the merge base.
 
 These catch what reaches a commit. They cannot catch a read, a live connection, or anything an agent does in a shell that never produces a commit. The README states that boundary for each harness.
 
+### Upgrade path
+
+Enforcement is an upgrade an adopter opts into, never a change that arrives with a plugin update.
+
+- **The switch is the manifest.** The hooks act only in a repository whose `checkrein.json` says `manifest_version` 2 or higher. A fresh `init` writes version 2. A repository set up with 0.1.0 holds version 1 and stays as it was until the operator runs the `upgrade` skill.
+- **The upgrade skill.** It reads the manifest and reports its version, prints one table of what each guard does and what it cannot see, asks the operator in one message for the production markers, example files, approval classes, consulted mode and code globs, then changes the version to 2 and adds the four new keys after the existing ones. No existing key is reordered, renamed or changed. It copies the diff check, the git hooks and the CI workflow without overwriting, writes or appends the `.ignore` file, prints the `git config core.hooksPath .githooks` line and the plugin update line, and runs the adopter check. It commits nothing.
+- **The plugin update.** The operator runs `claude plugin update checkrein` and starts a new session, because hooks load at session start. The update reaches the adopter only because the plugin's version string moved to 0.2.0; an unchanged version reports the install as current.
+- **What the adopter sees change.** The install or update pane lists the hooks the plugin adds. In a version 1 repository nothing else changes: every hook stays silent. After the upgrade, a command that reaches production, reads a protected tree or touches a secret file is denied with a reason that names the allowed alternative; a push, a pull request creation or merge and a dependency change ask first; a turn that edited code without reading the corrections log is held once at its end. The diff they review holds the manifest keys and five new files, and once the git hooks path is set, a commit that adds a secret file fails locally and the CI job runs on every pull request to the trunk.
+- **How version 1 keeps working.** The adopter check from 0.2.0 accepts versions 1 and 2, and every version 2 key is optional with a default. The skills read the same keys as before. A version 1 copy of the check script rejects a version 2 manifest, so the upgrade skill compares it with the release copy and replaces it only on the operator's word. To switch enforcement off again, the operator sets the version back to 1 and removes the four keys; the upgrade skill never lowers a version.
+
 ### Effort
 
-Estimate: 6 to 10 focused working days for one maintainer, about half of it spent on the evaluator and the case file, the rest on the four guards, the Stop hook, the git hooks and the documentation.
+Estimate, made before the build: 6 to 10 focused working days for one maintainer, about half of it spent on the evaluator and the case file, the rest on the four guards, the Stop hook, the git hooks and the documentation.
 
 ## 4. Tier 3: packs and adapters
 
@@ -179,11 +193,11 @@ A team mode covers more than one operator on a repository: who may promote a lin
 
 ### Free and paid
 
-The method stays free: the hub, the templates, the skills, the checks, the tier 2 guards, the adapters and the conformance suite. Stack packs are the candidates for a paid one-time pack, since each carries curated per-stack review checklists, a rule registry with fixtures, and upgrade notes that take sustained work to keep correct. A paid pack never gates a protocol step; tier 1 alone always runs the full loop.
+The method stays free: the hub, the templates, the skills, the checks, the tier 2 guards, the adapters and the conformance suite. Stack packs are the candidates for a paid one-time pack, since each carries curated per-stack review checklists, a rule registry with fixtures, and upgrade notes that take sustained work to keep correct. A paid pack never gates a protocol step; tier 1 alone always runs the full loop. Section 9 records why the guards stay on the free side of that line.
 
 ## 5. Demand triggers and the decision rule
 
-A tier, or a single pack or adapter in tier 3, starts only after three distinct asks for what it contains. An ask is an issue or a message from a different person or team naming the need, in their words. Stars, forks, downloads and reactions do not count. The maintainer's own projects do not count as an ask; a defect they find in tier 1 is a tier 1 fix. When three asks exist, the maintainer links them from the issue that starts the work, so the trigger is visible in the record.
+A single pack or adapter in tier 3 starts only after three distinct asks for what it contains, and the same count governs shipping tier 2 (release 0.2.0) to the official plugin directory. The maintainer may release earlier as a deliberate decision; a decision is not an ask and does not count toward any trigger. An ask is an issue or a message from a different person or team naming the need, in their words. Stars, forks, downloads and reactions do not count. The maintainer's own projects do not count as an ask; a defect they find in tier 1 is a tier 1 fix. When three asks exist, the maintainer links them from the issue that starts the work, so the trigger is visible in the record.
 
 ## 6. Distribution notes
 
@@ -197,13 +211,47 @@ A tier, or a single pack or adapter in tier 3, starts only after three distinct 
 - Improvements flow by hand from a project into the kit. The private leak scan is the gate: no change lands until the leak scan and the em dash scan find nothing, and the change reads as generic to someone who has never seen the project it came from.
 - Template changes travel with skill changes. When a skill starts reading or writing a section, the matching template and its filler guidance change in the same release.
 - Every release bumps the version string in `.claude-plugin/plugin.json`, because an unchanged version makes plugin update report the install as current.
-- From the first tagged release, the repository keeps its own changelog, one section per release, with Added, Changed and Fixed subsections present only when non-empty.
+- The repository keeps its own changelog in `CHANGELOG.md`, one `## <version>` section per release, newest first, with Added, Changed and Fixed subsections present only when non-empty. The version strings in `.claude-plugin/plugin.json` and `package.json` move together, and the repository checks fail when they differ or the changelog lacks the current version's section.
 
-## 8. Open decisions for the maintainer
+## 8. Decisions for the maintainer
 
-- Ship tier 2 inside this plugin, switched on by manifest keys, or as a separate plugin an adopter installs on purpose.
-- Whether the consulted-evidence Stop hook blocks from its first release or warns for one release first.
-- The exact name of the deliberate-read environment variable, and whether it should also require the path to appear in the operator's last message.
+Settled by the tier 2 build:
+
+- Tier 2 ships inside this plugin, switched on by manifest version 2, with `guards/` kept self-contained so it could move out as one folder.
+- The consulted-evidence Stop hook blocks from its first release; `consulted.mode` set to `warn` turns the block into a warning for an adopter who wants that.
+- The deliberate-read variable is `CHECKREIN_ALLOW_PROTECTED=1` at the start of a shell command. It does not check the operator's last message; the hub rule that the operator names the path carries that part.
+- Enforcement is free (section 9).
+
+Still open:
+
 - Which stack gets the first pack, and whether stack packs are paid at all.
 - Whether team mode belongs in checkrein or in a separate project.
-- When to submit to the official directory: at tier 1, or after the first adopters confirm the install path.
+- When to submit to the official directory: at tier 1, at 0.2.0 by deliberate decision, or after the demand rule in section 5 is met.
+
+## 9. Enforcement as an upgrade: free or paid
+
+Version 2 is the first release that does something new for an adopter who already runs the method, so it is the natural point to ask whether it is sold. Three options were weighed.
+
+**(a) A free upgrade, released as 0.2.0.** The guards ship inside the free plugin. They become the second launch story ("the rules now hold at the moment the agent acts"), and the paid layer, if any, stays the tier 3 stack packs.
+
+- For: it keeps one plugin and one install line; every adopter gets the safety rules enforced; the story strengthens the free kit rather than splitting it.
+- Against: nothing is earned from the work that went into the evaluator and the case file.
+- Watch out: a free guard still draws bypass reports and support questions. The case-file rule (every bypass becomes a case before its fix) keeps that cost bounded and visible.
+
+**(b) A paid enforcement plugin.** `guards/` and `hooks/` move into a separate plugin listed as a private marketplace entry, sold with a one-time licence. The free core keeps the same rules as text in the hub.
+
+- For: it puts a price on the part that took the most engineering, and the split is clean because the folder already stands alone.
+- Against: the guards are small scripts anyone can read and copy, so the licence protects little; two plugins double the install and update paths; adopters who most need a production-access guard are the ones least likely to pay before they have been burned.
+- Watch out: a licence check inside a hook is one more thing that can fail, and a guard that fails must ask (fail closed), so a licence outage would turn into a prompt on every tool call.
+
+**(c) Free guards plus a paid team licence.** The guards stay free. A team licence buys priority on bypass reports (a reported bypass becomes a case and a fix first) and help setting up the manifest, the markers and the CI job.
+
+- For: it charges for time and attention, which is what a team actually lacks, not for code that is already public.
+- Against: it is a service, which needs a support channel and a response promise one maintainer may not keep.
+- Watch out: it must never become a paywall on a fix. A bypass reported by anyone is fixed for everyone; the licence buys order in the queue, not the fix.
+
+**The pick is (a).** The guards are small scripts anyone can copy, so charging for them protects little. They are the credibility story for a free kit: the claim "checks beat prose" is strongest when the checks run at the moment of action. Charging for safety inside a free workflow reads badly, as though the free version were left unsafe on purpose. And no demand signal exists yet: no adopter has asked for enforcement, let alone with a budget.
+
+(b) stays possible without a rewrite. `guards/` imports nothing from `scripts/` or `skills/`, `hooks/hooks.json` names only files under `guards/`, and activation runs through the `upgrade` skill and `guards/manifest.mjs`. That loader is the one seam a licence check would use; nothing about licensing is built now, and the seam stays clean so none is needed later.
+
+What would change the pick is a team asking for enforcement with a budget. That turns into (c): the team pays for priority and setup help. It never turns into a paywall on the hook code.
